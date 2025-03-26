@@ -117,10 +117,19 @@ func (env *Env) Put(k *Val, v *Val) {
 
 type Val struct {
 	Type ValType
-	Num  int
-	Err  string
-	Sym  string
-	fun  BuiltinFunc
+
+	/* Basic */
+	Num int
+	Err string
+	Sym string
+
+	/* Function */
+	Builtin BuiltinFunc
+	Env     *Env
+	Formals *Val
+	Body    *Val
+
+	/* Expression */
 	Cell []*Val
 }
 
@@ -139,7 +148,7 @@ func NewValErr(f string, a ...any) *Val {
 func NewValSym(s string) *Val { return &Val{Type: ValSym, Sym: s} }
 
 func NewValFun(f BuiltinFunc) *Val {
-	return &Val{Type: ValFun, fun: f}
+	return &Val{Type: ValFun, Builtin: f}
 }
 
 func NewValSexpr() *Val { return &Val{Type: ValSexpr} }
@@ -150,7 +159,7 @@ func ValCopy(v *Val) *Val {
 	x := &Val{Type: v.Type}
 	switch v.Type {
 	case ValFun:
-		x.fun = v.fun
+		x.Builtin = v.Builtin
 	case ValNum:
 		x.Num = v.Num
 	case ValErr:
@@ -426,7 +435,7 @@ func ValEvalSexpr(e *Env, v *Val) *Val {
 		err := NewValErr("S-Expression starts with incorrect type. Got %s, Expected %s.", TypeName(f.Type), TypeName(ValFun))
 		return err
 	}
-	return f.fun(e, v)
+	return f.Builtin(e, v)
 }
 
 func ValReadNum(t *NumberContext) *Val {
