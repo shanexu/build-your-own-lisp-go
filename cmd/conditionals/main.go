@@ -12,7 +12,7 @@ import (
 )
 
 func main() {
-	fmt.Println("Lispy Version 0.0.0.0.8")
+	fmt.Println("Lispy Version 0.0.0.0.9")
 	fmt.Printf("Press Ctrl+c to Exit\n\n")
 
 	rl, err := readline.NewEx(&readline.Config{
@@ -272,6 +272,45 @@ func (v *Val) String() string {
 	return ""
 }
 
+func (v *Val) Eq(y *Val) bool {
+	x := v
+	if x.Type != y.Type {
+		return false
+	}
+	switch x.Type {
+	case ValNum:
+		return x.Num == y.Num
+	case ValErr:
+		return x.Err == y.Err
+	case ValSym:
+		return x.Sym == y.Sym
+	case ValFun:
+		if x.Builtin != nil && y.Builtin == nil {
+			return false
+		}
+		if x.Builtin == nil && y.Builtin != nil {
+			return false
+		}
+		if x.Builtin != nil && y.Builtin != nil {
+			return fmt.Sprintf("%s", x.Builtin) == fmt.Sprintf("%s", y.Builtin)
+		}
+		return x.Formals.Eq(y.Formals) && x.Body.Eq(y.Body)
+	case ValQexpr:
+		fallthrough
+	case ValSexpr:
+		if x.Count() != y.Count() {
+			return false
+		}
+		for i := range x.Count() {
+			if !x.Cell[i].Eq(y.Cell[i]) {
+				return false
+			}
+		}
+		return true
+	}
+	return false
+}
+
 func BuiltinLambda(e *Env, a *Val) *Val {
 	if err := AssertNum("\\", a, 2); err != nil {
 		return err
@@ -454,6 +493,103 @@ func BuiltinPut(e *Env, a *Val) *Val {
 	return BuiltinVar(e, a, "=")
 }
 
+func BuiltinOrd(e *Env, a *Val, op string) *Val {
+	if err := AssertNum(op, a, 2); err != nil {
+		return err
+	}
+	if err := AssertType(op, a, 0, ValNum); err != nil {
+		return err
+	}
+	if err := AssertType(op, a, 1, ValNum); err != nil {
+		return err
+	}
+	var r bool
+	if op == ">" {
+		r = a.Cell[0].Num > a.Cell[1].Num
+	}
+	if op == "<" {
+		r = a.Cell[0].Num < a.Cell[1].Num
+	}
+	if op == ">=" {
+		r = a.Cell[0].Num >= a.Cell[1].Num
+	}
+	if op == "<=" {
+		r = a.Cell[0].Num <= a.Cell[1].Num
+	}
+	num := NewValNum(0)
+	if r {
+		num.Num = 1
+	}
+	return num
+}
+
+func BuiltinGt(e *Env, a *Val) *Val {
+	return BuiltinOrd(e, a, ">")
+}
+
+func BuiltinLt(e *Env, a *Val) *Val {
+	return BuiltinOrd(e, a, "<")
+}
+
+func BuiltinGe(e *Env, a *Val) *Val {
+	return BuiltinOrd(e, a, ">=")
+}
+
+func BuiltinLe(e *Env, a *Val) *Val {
+	return BuiltinOrd(e, a, "<=")
+}
+
+func BuiltinCmp(e *Env, a *Val, op string) *Val {
+	if err := AssertNum(op, a, 2); err != nil {
+		return err
+	}
+	var r bool
+	if op == "==" {
+		r = a.Cell[0].Eq(a.Cell[1])
+	}
+	if op == "!=" {
+		r = !a.Cell[0].Eq(a.Cell[1])
+	}
+	num := NewValNum(0)
+	if r {
+		num.Num = 1
+	}
+	return num
+}
+
+func BuiltinEq(e *Env, a *Val) *Val {
+	return BuiltinCmp(e, a, "==")
+}
+
+func BuiltinNe(e *Env, a *Val) *Val {
+	return BuiltinCmp(e, a, "!=")
+}
+
+func BuiltinIf(e *Env, a *Val) *Val {
+	if err := AssertNum("if", a, 3); err != nil {
+		return err
+	}
+	if err := AssertType("if", a, 0, ValNum); err != nil {
+		return err
+	}
+	if err := AssertType("if", a, 1, ValQexpr); err != nil {
+		return err
+	}
+	if err := AssertType("if", a, 2, ValQexpr); err != nil {
+		return err
+	}
+	a.Cell[1].Type = ValSexpr
+	a.Cell[2].Type = ValSexpr
+
+	var x *Val
+	if a.Cell[0].Num != 0 {
+		x = ValEval(e, ValPop(a, 1))
+	} else {
+		x = ValEval(e, ValPop(a, 2))
+	}
+	return x
+}
+
 func (env *Env) AddBuiltin(name string, builtinFunc BuiltinFunc) {
 	k := NewValSym(name)
 	v := NewValFun(builtinFunc)
@@ -478,6 +614,15 @@ func (env *Env) AddBuiltins() {
 	env.AddBuiltin("-", BuiltinSub)
 	env.AddBuiltin("*", BuiltinMul)
 	env.AddBuiltin("/", BuiltinDiv)
+
+	/* Comparison Functions */
+	env.AddBuiltin("if", BuiltinIf)
+	env.AddBuiltin("==", BuiltinEq)
+	env.AddBuiltin("!=", BuiltinNe)
+	env.AddBuiltin(">", BuiltinGt)
+	env.AddBuiltin("<", BuiltinLt)
+	env.AddBuiltin(">=", BuiltinGe)
+	env.AddBuiltin("<=", BuiltinLe)
 }
 
 func ValCall(e *Env, f *Val, a *Val) *Val {
