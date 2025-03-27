@@ -633,7 +633,15 @@ func BuiltinLoad(e *Env, a *Val) *Val {
 	if err := AssertType("load", a, 0, ValStr); err != nil {
 		return err
 	}
-	content, err := os.ReadFile(a.cell[0].str)
+	var (
+		content []byte
+		err     error
+	)
+	if a.cell[0].str == "-" {
+		content, err = io.ReadAll(os.Stdin)
+	} else {
+		content, err = os.ReadFile(a.cell[0].str)
+	}
 	if err != nil {
 		return NewValErr("Could not load Library %s", err.Error())
 	}
@@ -652,9 +660,12 @@ func BuiltinLoad(e *Env, a *Val) *Val {
 }
 
 func BuiltinPrint(e *Env, a *Val) *Val {
-	for i := range a.Count() {
+	cnt := a.Count()
+	for i := range cnt {
 		fmt.Print(a.cell[i])
-		fmt.Print(" ")
+		if i != cnt-1 {
+			fmt.Print(" ")
+		}
 	}
 	fmt.Println()
 	return NewValSexpr()
