@@ -287,9 +287,8 @@ func (v *Val) String() string {
 	case ValFun:
 		if v.builtin != nil {
 			return "<function>"
-		} else {
-			return fmt.Sprintf("(\\ %s %s)", v.formals.String(), v.body.String())
 		}
+		return fmt.Sprintf("(\\ %s %s)", v.formals.String(), v.body.String())
 	case ValNum:
 		return fmt.Sprintf("%d", v.num)
 	case ValErr:
@@ -757,9 +756,8 @@ func ValCall(e *Env, f *Val, a *Val) *Val {
 	if f.formals.Count() == 0 {
 		f.env.par = e
 		return BuiltinEval(f.env, ValAdd(NewValSexpr(), ValCopy(f.body)))
-	} else {
-		return ValCopy(f)
 	}
+	return ValCopy(f)
 }
 
 func ValEval(e *Env, v *Val) *Val {
