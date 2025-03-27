@@ -5,60 +5,84 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"strconv"
+	"strings"
 
 	"github.com/antlr4-go/antlr/v4"
 	"github.com/chzyer/readline"
 )
 
 func main() {
-	fmt.Println("Lispy Version 0.0.0.1.0")
-	fmt.Printf("Press Ctrl+c to Exit\n\n")
-
-	rl, err := readline.NewEx(&readline.Config{
-		Prompt:          "lispy> ",
-		HistoryFile:     ".lispy.his",
-		InterruptPrompt: "^C",
-	})
-	if err != nil {
-		panic(err)
-	}
-	defer rl.Close()
-
 	e := EnvNew()
 	e.AddBuiltins()
 
-	for {
-		line, err := rl.Readline()
+	if len(os.Args) == 1 {
+		fmt.Println("Lispy Version 0.0.0.1.0")
+		fmt.Printf("Press Ctrl+c to Exit\n\n")
+
+		rl, err := readline.NewEx(&readline.Config{
+			Prompt:          "lispy> ",
+			HistoryFile:     ".lispy.his",
+			InterruptPrompt: "^C",
+		})
 		if err != nil {
-			if errors.Is(err, readline.ErrInterrupt) || err == io.EOF {
-				break
+			panic(err)
+		}
+		defer rl.Close()
+
+		for {
+			line, err := rl.Readline()
+			if err != nil {
+				if errors.Is(err, readline.ErrInterrupt) || err == io.EOF {
+					break
+				}
+				fmt.Printf("Error: %v\n", err)
+				continue
 			}
-			fmt.Printf("Error: %v\n", err)
-			continue
-		}
-		if line == "" {
-			continue
-		}
-		is := antlr.NewInputStream(line)
-		ec := &ErrorCollector{}
-		lexer := NewLispyLexer(is)
-		lexer.RemoveErrorListeners()
-		lexer.AddErrorListener(ec)
-		stream := antlr.NewCommonTokenStream(lexer, antlr.TokenDefaultChannel)
-
-		parser := NewLispyParser(stream)
-		parser.RemoveErrorListeners()
-		parser.AddErrorListener(ec)
-
-		tree := parser.Lispy()
-		if len(ec.Errors) > 0 {
-			fmt.Println(ec)
-		} else {
-			x := ValEval(e, ValRead(tree))
-			fmt.Println(x)
+			if line == "" {
+				continue
+			}
+			tree, err := ParseContents(line)
+			if err != nil {
+				fmt.Println("Error:", err)
+			} else {
+				x := ValEval(e, ValRead(tree))
+				fmt.Println(x)
+			}
 		}
 	}
+
+	if len(os.Args) >= 2 {
+		for i := 1; i < len(os.Args); i++ {
+			args := ValAdd(NewValSexpr(), NewValStr(os.Args[i]))
+			x := BuiltinLoad(e, args)
+
+			if x.t == ValErr {
+				fmt.Println(x)
+			}
+		}
+	}
+
+}
+
+func ParseContents(input string) (antlr.Tree, error) {
+	is := antlr.NewInputStream(input)
+	ec := &ErrorCollector{}
+	lexer := NewLispyLexer(is)
+	lexer.RemoveErrorListeners()
+	lexer.AddErrorListener(ec)
+	stream := antlr.NewCommonTokenStream(lexer, antlr.TokenDefaultChannel)
+
+	parser := NewLispyParser(stream)
+	parser.RemoveErrorListeners()
+	parser.AddErrorListener(ec)
+
+	tree := parser.Lispy()
+	if len(ec.Errors) > 0 {
+		return nil, errors.New(strings.Join(ec.Errors, "\n"))
+	}
+	return tree, nil
 }
 
 type ValType int
@@ -67,6 +91,7 @@ const (
 	ValErr ValType = iota
 	ValNum
 	ValSym
+	ValStr
 	ValFun
 	ValSexpr
 	ValQexpr
@@ -82,6 +107,8 @@ func TypeName(t ValType) string {
 		return "Error"
 	case ValSym:
 		return "Symbol"
+	case ValStr:
+		return "String"
 	case ValSexpr:
 		return "S-Expression"
 	case ValQexpr:
@@ -171,6 +198,8 @@ func NewValErr(f string, a ...any) *Val {
 
 func NewValSym(s string) *Val { return &Val{t: ValSym, sym: s} }
 
+func NewValStr(s string) *Val { return &Val{t: ValStr, str: s} }
+
 func NewValFun(f BuiltinFunc) *Val {
 	return &Val{t: ValFun, builtin: f}
 }
@@ -205,6 +234,8 @@ func ValCopy(v *Val) *Val {
 		x.err = v.err
 	case ValSym:
 		x.sym = v.sym
+	case ValStr:
+		x.str = v.str
 	case ValSexpr:
 		fallthrough
 	case ValQexpr:
@@ -265,6 +296,8 @@ func (v *Val) String() string {
 		return fmt.Sprintf("Error: %s", v.err)
 	case ValSym:
 		return v.sym
+	case ValStr:
+		return fmt.Sprintf("%q", v.str)
 	case ValSexpr:
 		return ExprToString(v, "(", ")")
 	case ValQexpr:
@@ -285,6 +318,8 @@ func (v *Val) Eq(y *Val) bool {
 		return x.err == y.err
 	case ValSym:
 		return x.sym == y.sym
+	case ValStr:
+		return x.str == y.str
 	case ValFun:
 		if x.builtin != nil && y.builtin == nil {
 			return false
@@ -591,6 +626,51 @@ func BuiltinIf(e *Env, a *Val) *Val {
 	return x
 }
 
+func BuiltinLoad(e *Env, a *Val) *Val {
+	if err := AssertNum("load", a, 1); err != nil {
+		return err
+	}
+	if err := AssertType("load", a, 0, ValStr); err != nil {
+		return err
+	}
+	content, err := os.ReadFile(a.cell[0].str)
+	if err != nil {
+		return NewValErr("Could not load Library %s", err.Error())
+	}
+	tree, err := ParseContents(string(content))
+	if err != nil {
+		return NewValErr("Could not load Library %s", err.Error())
+	}
+	expr := ValRead(tree)
+	for expr.Count() > 0 {
+		x := ValEval(e, ValPop(expr, 0))
+		if x.t == ValErr {
+			fmt.Println(x)
+		}
+	}
+	return NewValSexpr()
+}
+
+func BuiltinPrint(e *Env, a *Val) *Val {
+	for i := range a.Count() {
+		fmt.Print(a.cell[i])
+		fmt.Print(" ")
+	}
+	fmt.Println()
+	return NewValSexpr()
+}
+
+func BuiltinError(e *Env, a *Val) *Val {
+	if err := AssertNum("error", a, 1); err != nil {
+		return err
+	}
+	if err := AssertType("error", a, 0, ValStr); err != nil {
+		return err
+	}
+
+	return NewValErr(a.cell[0].str)
+}
+
 func (env *Env) AddBuiltin(name string, builtinFunc BuiltinFunc) {
 	k := NewValSym(name)
 	v := NewValFun(builtinFunc)
@@ -624,6 +704,11 @@ func (env *Env) AddBuiltins() {
 	env.AddBuiltin("<", BuiltinLt)
 	env.AddBuiltin(">=", BuiltinGe)
 	env.AddBuiltin("<=", BuiltinLe)
+
+	/* String Functions */
+	env.AddBuiltin("load", BuiltinLoad)
+	env.AddBuiltin("error", BuiltinError)
+	env.AddBuiltin("print", BuiltinPrint)
 }
 
 func ValCall(e *Env, f *Val, a *Val) *Val {
@@ -713,6 +798,14 @@ func ValReadNum(t *NumberContext) *Val {
 	return NewValNum(x)
 }
 
+func ValReadStr(t *StringContext) *Val {
+	s, err := strconv.Unquote(t.GetText())
+	if err != nil {
+		return NewValErr(err.Error())
+	}
+	return NewValStr(s)
+}
+
 func ValRead(t antlr.Tree) *Val {
 	var x *Val
 	switch t2 := t.(type) {
@@ -720,6 +813,8 @@ func ValRead(t antlr.Tree) *Val {
 		return ValReadNum(t2)
 	case *SymbolContext:
 		return NewValSym(t2.GetText())
+	case *StringContext:
+		return ValReadStr(t2)
 	case *LispyContext:
 		x = NewValSexpr()
 	case *SexprContext:
@@ -729,6 +824,8 @@ func ValRead(t antlr.Tree) *Val {
 	case *ExprContext:
 		return ValRead(t2.GetChild(0))
 	case antlr.TerminalNode:
+		return nil
+	case *CommentContext:
 		return nil
 	}
 	for i := range t.GetChildCount() {

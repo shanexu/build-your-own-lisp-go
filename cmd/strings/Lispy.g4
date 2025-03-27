@@ -3,7 +3,7 @@ grammar Lispy;
 NUMBER : '-'? [0-9]+;
 SYMBOL : [a-zA-Z0-9_+\\\-*/=<>!&]+;
 STRING : '"' ('\\"'|.)*? '"';
-COMMENT: ';' [^\r\n]*;
+COMMENT: ';' ~[\r\n]*;
 WS     : [ \t\n\r]+ -> skip;
 
 number : NUMBER;
