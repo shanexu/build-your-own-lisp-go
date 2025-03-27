@@ -105,18 +105,18 @@ func EnvNew() *Env {
 }
 
 func (env *Env) Get(k *Val) *Val {
-	v, ok := env.vals[k.Sym]
+	v, ok := env.vals[k.sym]
 	if ok {
 		return ValCopy(v)
 	}
 	if env.par != nil {
 		return env.par.Get(k)
 	}
-	return NewValErr("Unbound Symbol '%s'", k.Sym)
+	return NewValErr("Unbound Symbol '%s'", k.sym)
 }
 
 func (env *Env) Put(k *Val, v *Val) {
-	env.vals[k.Sym] = ValCopy(v)
+	env.vals[k.sym] = ValCopy(v)
 }
 
 func (env *Env) Copy() *Env {
@@ -139,101 +139,102 @@ func (env *Env) Def(k *Val, v *Val) {
 }
 
 type Val struct {
-	Type ValType
+	t ValType
 
 	/* Basic */
-	Num int
-	Err string
-	Sym string
+	num int
+	err string
+	sym string
+	str string
 
 	/* Function */
-	Builtin BuiltinFunc
-	Env     *Env
-	Formals *Val
-	Body    *Val
+	builtin BuiltinFunc
+	env     *Env
+	formals *Val
+	body    *Val
 
 	/* Expression */
-	Cell []*Val
+	cell []*Val
 }
 
 func (v *Val) Count() int {
-	return len(v.Cell)
+	return len(v.cell)
 }
 
 func NewValNum(x int) *Val {
-	return &Val{Type: ValNum, Num: x}
+	return &Val{t: ValNum, num: x}
 }
 
 func NewValErr(f string, a ...any) *Val {
-	return &Val{Type: ValErr, Err: fmt.Sprintf(f, a...)}
+	return &Val{t: ValErr, err: fmt.Sprintf(f, a...)}
 }
 
-func NewValSym(s string) *Val { return &Val{Type: ValSym, Sym: s} }
+func NewValSym(s string) *Val { return &Val{t: ValSym, sym: s} }
 
 func NewValFun(f BuiltinFunc) *Val {
-	return &Val{Type: ValFun, Builtin: f}
+	return &Val{t: ValFun, builtin: f}
 }
 
 func NewLambda(formals *Val, body *Val) *Val {
 	return &Val{
-		Type:    ValFun,
-		Env:     EnvNew(),
-		Formals: formals,
-		Body:    body,
+		t:       ValFun,
+		env:     EnvNew(),
+		formals: formals,
+		body:    body,
 	}
 }
 
-func NewValSexpr() *Val { return &Val{Type: ValSexpr} }
+func NewValSexpr() *Val { return &Val{t: ValSexpr} }
 
-func NewValQexpr() *Val { return &Val{Type: ValQexpr} }
+func NewValQexpr() *Val { return &Val{t: ValQexpr} }
 
 func ValCopy(v *Val) *Val {
-	x := &Val{Type: v.Type}
-	switch v.Type {
+	x := &Val{t: v.t}
+	switch v.t {
 	case ValFun:
-		if v.Builtin != nil {
-			x.Builtin = v.Builtin
+		if v.builtin != nil {
+			x.builtin = v.builtin
 		} else {
-			x.Env = v.Env.Copy()
-			x.Formals = ValCopy(v.Formals)
-			x.Body = ValCopy(v.Body)
+			x.env = v.env.Copy()
+			x.formals = ValCopy(v.formals)
+			x.body = ValCopy(v.body)
 		}
 	case ValNum:
-		x.Num = v.Num
+		x.num = v.num
 	case ValErr:
-		x.Err = v.Err
+		x.err = v.err
 	case ValSym:
-		x.Sym = v.Sym
+		x.sym = v.sym
 	case ValSexpr:
 		fallthrough
 	case ValQexpr:
-		for _, c := range v.Cell {
-			x.Cell = append(x.Cell, ValCopy(c))
+		for _, c := range v.cell {
+			x.cell = append(x.cell, ValCopy(c))
 		}
 	}
 	return x
 }
 
 func ValAdd(v *Val, x *Val) *Val {
-	v.Cell = append(v.Cell, x)
+	v.cell = append(v.cell, x)
 	return v
 }
 
 func ValJoin(x *Val, y *Val) *Val {
-	x.Cell = append(x.Cell, y.Cell...)
-	y.Cell = nil
+	x.cell = append(x.cell, y.cell...)
+	y.cell = nil
 	return x
 }
 
 func ValPop(v *Val, i int) *Val {
-	x := v.Cell[i]
-	v.Cell = append(v.Cell[:i], v.Cell[i+1:]...)
+	x := v.cell[i]
+	v.cell = append(v.cell[:i], v.cell[i+1:]...)
 	return x
 }
 
 func ValTake(v *Val, i int) *Val {
-	x := v.Cell[i]
-	v.Cell = nil
+	x := v.cell[i]
+	v.cell = nil
 	return x
 }
 
@@ -241,7 +242,7 @@ func ExprToString(v *Val, open, close string) string {
 	buf := bytes.NewBuffer(nil)
 	buf.WriteString(open)
 	for i := 0; i < v.Count(); i++ {
-		buf.WriteString(v.Cell[i].String())
+		buf.WriteString(v.cell[i].String())
 		if i != v.Count()-1 {
 			buf.WriteString(" ")
 		}
@@ -251,19 +252,19 @@ func ExprToString(v *Val, open, close string) string {
 }
 
 func (v *Val) String() string {
-	switch v.Type {
+	switch v.t {
 	case ValFun:
-		if v.Builtin != nil {
+		if v.builtin != nil {
 			return "<function>"
 		} else {
-			return fmt.Sprintf("(\\ %s %s)", v.Formals.String(), v.Body.String())
+			return fmt.Sprintf("(\\ %s %s)", v.formals.String(), v.body.String())
 		}
 	case ValNum:
-		return fmt.Sprintf("%d", v.Num)
+		return fmt.Sprintf("%d", v.num)
 	case ValErr:
-		return fmt.Sprintf("Error: %s", v.Err)
+		return fmt.Sprintf("Error: %s", v.err)
 	case ValSym:
-		return v.Sym
+		return v.sym
 	case ValSexpr:
 		return ExprToString(v, "(", ")")
 	case ValQexpr:
@@ -274,27 +275,27 @@ func (v *Val) String() string {
 
 func (v *Val) Eq(y *Val) bool {
 	x := v
-	if x.Type != y.Type {
+	if x.t != y.t {
 		return false
 	}
-	switch x.Type {
+	switch x.t {
 	case ValNum:
-		return x.Num == y.Num
+		return x.num == y.num
 	case ValErr:
-		return x.Err == y.Err
+		return x.err == y.err
 	case ValSym:
-		return x.Sym == y.Sym
+		return x.sym == y.sym
 	case ValFun:
-		if x.Builtin != nil && y.Builtin == nil {
+		if x.builtin != nil && y.builtin == nil {
 			return false
 		}
-		if x.Builtin == nil && y.Builtin != nil {
+		if x.builtin == nil && y.builtin != nil {
 			return false
 		}
-		if x.Builtin != nil && y.Builtin != nil {
-			return fmt.Sprintf("%s", x.Builtin) == fmt.Sprintf("%s", y.Builtin)
+		if x.builtin != nil && y.builtin != nil {
+			return fmt.Sprintf("%s", x.builtin) == fmt.Sprintf("%s", y.builtin)
 		}
-		return x.Formals.Eq(y.Formals) && x.Body.Eq(y.Body)
+		return x.formals.Eq(y.formals) && x.body.Eq(y.body)
 	case ValQexpr:
 		fallthrough
 	case ValSexpr:
@@ -302,7 +303,7 @@ func (v *Val) Eq(y *Val) bool {
 			return false
 		}
 		for i := range x.Count() {
-			if !x.Cell[i].Eq(y.Cell[i]) {
+			if !x.cell[i].Eq(y.cell[i]) {
 				return false
 			}
 		}
@@ -322,8 +323,8 @@ func BuiltinLambda(e *Env, a *Val) *Val {
 		return err
 	}
 
-	for i := range a.Cell[0].Count() {
-		if err := Assert(a, a.Cell[0].Cell[i].Type == ValSym, "Cannot define non-symbol. Got %s, Expected %s.", TypeName(a.Cell[0].Cell[i].Type), TypeName(ValSym)); err != nil {
+	for i := range a.cell[0].Count() {
+		if err := Assert(a, a.cell[0].cell[i].t == ValSym, "Cannot define non-symbol. Got %s, Expected %s.", TypeName(a.cell[0].cell[i].t), TypeName(ValSym)); err != nil {
 			return err
 		}
 	}
@@ -334,7 +335,7 @@ func BuiltinLambda(e *Env, a *Val) *Val {
 }
 
 func BuiltinList(e *Env, a *Val) *Val {
-	a.Type = ValQexpr
+	a.t = ValQexpr
 	return a
 }
 
@@ -346,7 +347,7 @@ func Assert(args *Val, cond bool, format string, a ...any) *Val {
 }
 
 func AssertType(fun string, args *Val, index int, expect ValType) *Val {
-	return Assert(args, args.Cell[index].Type == expect, "Function '%s' passed incorrect type for argument %i. Got %s, Expected %s.", fun, index, TypeName(args.Cell[index].Type), TypeName(expect))
+	return Assert(args, args.cell[index].t == expect, "Function '%s' passed incorrect type for argument %i. Got %s, Expected %s.", fun, index, TypeName(args.cell[index].t), TypeName(expect))
 }
 
 func AssertNum(fun string, args *Val, num int) *Val {
@@ -354,7 +355,7 @@ func AssertNum(fun string, args *Val, num int) *Val {
 }
 
 func AssertNotEmpty(fun string, args *Val, index int) *Val {
-	return Assert(args, args.Cell[index].Count() != 0, "Function '%s' passed {} for argument %i.", fun, index)
+	return Assert(args, args.cell[index].Count() != 0, "Function '%s' passed {} for argument %i.", fun, index)
 }
 
 func BuiltinHead(e *Env, a *Val) *Val {
@@ -397,7 +398,7 @@ func BuiltinEval(e *Env, a *Val) *Val {
 		return err
 	}
 	x := ValTake(a, 0)
-	x.Type = ValSexpr
+	x.t = ValSexpr
 	return ValEval(e, x)
 }
 
@@ -415,30 +416,30 @@ func BuiltinJoin(e *Env, a *Val) *Val {
 }
 
 func BuiltinOp(e *Env, a *Val, op string) *Val {
-	for _, c := range a.Cell {
-		if c.Type != ValNum {
+	for _, c := range a.cell {
+		if c.t != ValNum {
 			return NewValErr("Cannot operate on non-number!")
 		}
 	}
 	x := ValPop(a, 0)
 	if op == "-" && a.Count() == 0 {
-		x.Num = -x.Num
+		x.num = -x.num
 	}
 
 	for a.Count() > 0 {
 		y := ValPop(a, 0)
 		switch op {
 		case "+":
-			x.Num += y.Num
+			x.num += y.num
 		case "-":
-			x.Num -= y.Num
+			x.num -= y.num
 		case "*":
-			x.Num *= y.Num
+			x.num *= y.num
 		case "/":
-			if y.Num == 0 {
+			if y.num == 0 {
 				x = NewValErr("Division by zero.")
 			} else {
-				x.Num /= y.Num
+				x.num /= y.num
 			}
 		}
 	}
@@ -465,9 +466,9 @@ func BuiltinVar(e *Env, a *Val, fun string) *Val {
 	if err := AssertType(fun, a, 0, ValQexpr); err != nil {
 		return err
 	}
-	syms := a.Cell[0]
+	syms := a.cell[0]
 	for i := range syms.Count() {
-		if err := Assert(a, syms.Cell[i].Type == ValSym, "Function '%s' cannot define non-symbol. Got %s, Expected %s.", fun, TypeName(syms.Cell[i].Type), TypeName(ValSym)); err != nil {
+		if err := Assert(a, syms.cell[i].t == ValSym, "Function '%s' cannot define non-symbol. Got %s, Expected %s.", fun, TypeName(syms.cell[i].t), TypeName(ValSym)); err != nil {
 			return err
 		}
 	}
@@ -476,10 +477,10 @@ func BuiltinVar(e *Env, a *Val, fun string) *Val {
 	}
 	for i := range syms.Count() {
 		if fun == "def" {
-			e.Def(syms.Cell[i], a.Cell[i+1])
+			e.Def(syms.cell[i], a.cell[i+1])
 		}
 		if fun == "=" {
-			e.Put(syms.Cell[i], a.Cell[i+1])
+			e.Put(syms.cell[i], a.cell[i+1])
 		}
 	}
 	return NewValSexpr()
@@ -505,20 +506,20 @@ func BuiltinOrd(e *Env, a *Val, op string) *Val {
 	}
 	var r bool
 	if op == ">" {
-		r = a.Cell[0].Num > a.Cell[1].Num
+		r = a.cell[0].num > a.cell[1].num
 	}
 	if op == "<" {
-		r = a.Cell[0].Num < a.Cell[1].Num
+		r = a.cell[0].num < a.cell[1].num
 	}
 	if op == ">=" {
-		r = a.Cell[0].Num >= a.Cell[1].Num
+		r = a.cell[0].num >= a.cell[1].num
 	}
 	if op == "<=" {
-		r = a.Cell[0].Num <= a.Cell[1].Num
+		r = a.cell[0].num <= a.cell[1].num
 	}
 	num := NewValNum(0)
 	if r {
-		num.Num = 1
+		num.num = 1
 	}
 	return num
 }
@@ -545,14 +546,14 @@ func BuiltinCmp(e *Env, a *Val, op string) *Val {
 	}
 	var r bool
 	if op == "==" {
-		r = a.Cell[0].Eq(a.Cell[1])
+		r = a.cell[0].Eq(a.cell[1])
 	}
 	if op == "!=" {
-		r = !a.Cell[0].Eq(a.Cell[1])
+		r = !a.cell[0].Eq(a.cell[1])
 	}
 	num := NewValNum(0)
 	if r {
-		num.Num = 1
+		num.num = 1
 	}
 	return num
 }
@@ -578,11 +579,11 @@ func BuiltinIf(e *Env, a *Val) *Val {
 	if err := AssertType("if", a, 2, ValQexpr); err != nil {
 		return err
 	}
-	a.Cell[1].Type = ValSexpr
-	a.Cell[2].Type = ValSexpr
+	a.cell[1].t = ValSexpr
+	a.cell[2].t = ValSexpr
 
 	var x *Val
-	if a.Cell[0].Num != 0 {
+	if a.cell[0].num != 0 {
 		x = ValEval(e, ValPop(a, 1))
 	} else {
 		x = ValEval(e, ValPop(a, 2))
@@ -626,51 +627,51 @@ func (env *Env) AddBuiltins() {
 }
 
 func ValCall(e *Env, f *Val, a *Val) *Val {
-	if f.Builtin != nil {
-		return f.Builtin(e, a)
+	if f.builtin != nil {
+		return f.builtin(e, a)
 	}
 	given := a.Count()
-	total := f.Formals.Count()
+	total := f.formals.Count()
 
 	for a.Count() > 0 {
-		if f.Formals.Count() == 0 {
+		if f.formals.Count() == 0 {
 			return NewValErr("Function passed too many arguments. Got %d, Expected %d.", given, total)
 		}
-		sym := ValPop(f.Formals, 0)
-		if sym.Sym == "&" {
-			if f.Formals.Count() != 1 {
+		sym := ValPop(f.formals, 0)
+		if sym.sym == "&" {
+			if f.formals.Count() != 1 {
 				return NewValErr("Function format invalid. Symbol '&' not followed by single symbol.")
 			}
-			nsym := ValPop(f.Formals, 0)
-			f.Env.Put(nsym, BuiltinList(e, a))
+			nsym := ValPop(f.formals, 0)
+			f.env.Put(nsym, BuiltinList(e, a))
 			break
 		}
 		val := ValPop(a, 0)
-		f.Env.Put(sym, val)
+		f.env.Put(sym, val)
 	}
-	if f.Formals.Count() > 0 && f.Formals.Cell[0].Sym == "&" {
-		if f.Formals.Count() != 2 {
+	if f.formals.Count() > 0 && f.formals.cell[0].sym == "&" {
+		if f.formals.Count() != 2 {
 			return NewValErr("Function format invalid. Symbol '&' not followed by single symbol.")
 		}
-		ValPop(f.Formals, 0)
-		sym := ValPop(f.Formals, 0)
+		ValPop(f.formals, 0)
+		sym := ValPop(f.formals, 0)
 		val := NewValQexpr()
-		f.Env.Put(sym, val)
+		f.env.Put(sym, val)
 	}
-	if f.Formals.Count() == 0 {
-		f.Env.par = e
-		return BuiltinEval(f.Env, ValAdd(NewValSexpr(), ValCopy(f.Body)))
+	if f.formals.Count() == 0 {
+		f.env.par = e
+		return BuiltinEval(f.env, ValAdd(NewValSexpr(), ValCopy(f.body)))
 	} else {
 		return ValCopy(f)
 	}
 }
 
 func ValEval(e *Env, v *Val) *Val {
-	if v.Type == ValSym {
+	if v.t == ValSym {
 		x := e.Get(v)
 		return x
 	}
-	if v.Type == ValSexpr {
+	if v.t == ValSexpr {
 		return ValEvalSexpr(e, v)
 	}
 	return v
@@ -678,11 +679,11 @@ func ValEval(e *Env, v *Val) *Val {
 
 func ValEvalSexpr(e *Env, v *Val) *Val {
 	for i := range v.Count() {
-		v.Cell[i] = ValEval(e, v.Cell[i])
+		v.cell[i] = ValEval(e, v.cell[i])
 	}
 
 	for i := range v.Count() {
-		if v.Cell[i].Type == ValErr {
+		if v.cell[i].t == ValErr {
 			return ValTake(v, i)
 		}
 	}
@@ -697,8 +698,8 @@ func ValEvalSexpr(e *Env, v *Val) *Val {
 
 	/* Ensure first element is a function after evaluation */
 	f := ValPop(v, 0)
-	if f.Type != ValFun {
-		err := NewValErr("S-Expression starts with incorrect type. Got %s, Expected %s.", TypeName(f.Type), TypeName(ValFun))
+	if f.t != ValFun {
+		err := NewValErr("S-Expression starts with incorrect type. Got %s, Expected %s.", TypeName(f.t), TypeName(ValFun))
 		return err
 	}
 	return ValCall(e, f, v)
