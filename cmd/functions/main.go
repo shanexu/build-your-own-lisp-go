@@ -12,7 +12,7 @@ import (
 )
 
 func main() {
-	fmt.Println("Lispy Version 0.0.0.0.7")
+	fmt.Println("Lispy Version 0.0.0.0.8")
 	fmt.Printf("Press Ctrl+c to Exit\n\n")
 
 	rl, err := readline.NewEx(&readline.Config{
@@ -94,6 +94,7 @@ func TypeName(t ValType) string {
 type BuiltinFunc func(*Env, *Val) *Val
 
 type Env struct {
+	par  *Env
 	vals map[string]*Val
 }
 
@@ -106,13 +107,35 @@ func EnvNew() *Env {
 func (env *Env) Get(k *Val) *Val {
 	v, ok := env.vals[k.Sym]
 	if ok {
-		return v
+		return ValCopy(v)
+	}
+	if env.par != nil {
+		return env.par.Get(k)
 	}
 	return NewValErr("Unbound Symbol '%s'", k.Sym)
 }
 
 func (env *Env) Put(k *Val, v *Val) {
 	env.vals[k.Sym] = ValCopy(v)
+}
+
+func (env *Env) Copy() *Env {
+	n := EnvNew()
+	n.par = env.par
+	for k, v := range env.vals {
+		n.Put(NewValSym(k), ValCopy(v))
+	}
+	return n
+}
+
+func (env *Env) Def(k *Val, v *Val) {
+	/* Iterate till e has no parent */
+	e := env
+	for e.par != nil {
+		e = e.par
+	}
+	/* Put value in e */
+	e.Put(k, v)
 }
 
 type Val struct {
@@ -151,6 +174,15 @@ func NewValFun(f BuiltinFunc) *Val {
 	return &Val{Type: ValFun, Builtin: f}
 }
 
+func NewLambda(formals *Val, body *Val) *Val {
+	return &Val{
+		Type:    ValFun,
+		Env:     EnvNew(),
+		Formals: formals,
+		Body:    body,
+	}
+}
+
 func NewValSexpr() *Val { return &Val{Type: ValSexpr} }
 
 func NewValQexpr() *Val { return &Val{Type: ValQexpr} }
@@ -159,7 +191,13 @@ func ValCopy(v *Val) *Val {
 	x := &Val{Type: v.Type}
 	switch v.Type {
 	case ValFun:
-		x.Builtin = v.Builtin
+		if v.Builtin != nil {
+			x.Builtin = v.Builtin
+		} else {
+			x.Env = v.Env.Copy()
+			x.Formals = ValCopy(v.Formals)
+			x.Body = ValCopy(v.Body)
+		}
 	case ValNum:
 		x.Num = v.Num
 	case ValErr:
@@ -215,7 +253,11 @@ func ExprToString(v *Val, open, close string) string {
 func (v *Val) String() string {
 	switch v.Type {
 	case ValFun:
-		return "<function>"
+		if v.Builtin != nil {
+			return "<function>"
+		} else {
+			return fmt.Sprintf("(\\ %s %s)", v.Formals.String(), v.Body.String())
+		}
 	case ValNum:
 		return fmt.Sprintf("%d", v.Num)
 	case ValErr:
@@ -228,6 +270,28 @@ func (v *Val) String() string {
 		return ExprToString(v, "{", "}")
 	}
 	return ""
+}
+
+func BuiltinLambda(e *Env, a *Val) *Val {
+	if err := AssertNum("\\", a, 2); err != nil {
+		return err
+	}
+	if err := AssertType("\\", a, 0, ValQexpr); err != nil {
+		return err
+	}
+	if err := AssertType("\\", a, 0, ValQexpr); err != nil {
+		return err
+	}
+
+	for i := range a.Cell[0].Count() {
+		if err := Assert(a, a.Cell[0].Cell[i].Type == ValSym, "Cannot define non-symbol. Got %s, Expected %s.", TypeName(a.Cell[0].Cell[i].Type), TypeName(ValSym)); err != nil {
+			return err
+		}
+	}
+	formals := ValPop(a, 0)
+	body := ValPop(a, 0)
+
+	return NewLambda(formals, body)
 }
 
 func BuiltinList(e *Env, a *Val) *Val {
@@ -265,7 +329,9 @@ func BuiltinHead(e *Env, a *Val) *Val {
 		return err
 	}
 	v := ValTake(a, 0)
-	v.Cell = v.Cell[1:]
+	for v.Count() > 1 {
+		ValPop(v, 1)
+	}
 	return v
 }
 
@@ -356,23 +422,36 @@ func BuiltinDiv(e *Env, a *Val) *Val {
 	return BuiltinOp(e, a, "/")
 }
 
-func BuiltinDef(e *Env, a *Val) *Val {
-	if err := AssertType("def", a, 0, ValQexpr); err != nil {
+func BuiltinVar(e *Env, a *Val, fun string) *Val {
+	if err := AssertType(fun, a, 0, ValQexpr); err != nil {
 		return err
 	}
 	syms := a.Cell[0]
 	for i := range syms.Count() {
-		if err := Assert(a, syms.Cell[i].Type == ValSym, "Function 'def' cannot define non-symbol. Got %s, Expected %s.", TypeName(syms.Cell[i].Type), TypeName(ValSym)); err != nil {
+		if err := Assert(a, syms.Cell[i].Type == ValSym, "Function '%s' cannot define non-symbol. Got %s, Expected %s.", fun, TypeName(syms.Cell[i].Type), TypeName(ValSym)); err != nil {
 			return err
 		}
 	}
-	if err := Assert(a, syms.Count() == a.Count()-1, "Function 'def' passed too many arguments for symbols. Got %d, Expected %d.", syms.Count(), a.Count()); err != nil {
+	if err := Assert(a, syms.Count() == a.Count()-1, "Function '%s' passed too many arguments for symbols. Got %d, Expected %d.", fun, syms.Count(), a.Count()-1); err != nil {
 		return err
 	}
 	for i := range syms.Count() {
-		e.Put(syms.Cell[i], a.Cell[i+1])
+		if fun == "def" {
+			e.Def(syms.Cell[i], a.Cell[i+1])
+		}
+		if fun == "=" {
+			e.Put(syms.Cell[i], a.Cell[i+1])
+		}
 	}
 	return NewValSexpr()
+}
+
+func BuiltinDef(e *Env, a *Val) *Val {
+	return BuiltinVar(e, a, "def")
+}
+
+func BuiltinPut(e *Env, a *Val) *Val {
+	return BuiltinVar(e, a, "=")
 }
 
 func (env *Env) AddBuiltin(name string, builtinFunc BuiltinFunc) {
@@ -383,7 +462,9 @@ func (env *Env) AddBuiltin(name string, builtinFunc BuiltinFunc) {
 
 func (env *Env) AddBuiltins() {
 	/* Variable Functions */
+	env.AddBuiltin("\\", BuiltinLambda)
 	env.AddBuiltin("def", BuiltinDef)
+	env.AddBuiltin("=", BuiltinPut)
 
 	/* List Functions */
 	env.AddBuiltin("list", BuiltinList)
@@ -397,6 +478,46 @@ func (env *Env) AddBuiltins() {
 	env.AddBuiltin("-", BuiltinSub)
 	env.AddBuiltin("*", BuiltinMul)
 	env.AddBuiltin("/", BuiltinDiv)
+}
+
+func ValCall(e *Env, f *Val, a *Val) *Val {
+	if f.Builtin != nil {
+		return f.Builtin(e, a)
+	}
+	given := a.Count()
+	total := f.Formals.Count()
+
+	for a.Count() > 0 {
+		if f.Formals.Count() == 0 {
+			return NewValErr("Function passed too many arguments. Got %d, Expected %d.", given, total)
+		}
+		sym := ValPop(f.Formals, 0)
+		if sym.Sym == "&" {
+			if f.Formals.Count() != 1 {
+				return NewValErr("Function format invalid. Symbol '&' not followed by single symbol.")
+			}
+			nsym := ValPop(f.Formals, 0)
+			f.Env.Put(nsym, BuiltinList(e, a))
+			break
+		}
+		val := ValPop(a, 0)
+		f.Env.Put(sym, val)
+	}
+	if f.Formals.Count() > 0 && f.Formals.Cell[0].Sym == "&" {
+		if f.Formals.Count() != 2 {
+			return NewValErr("Function format invalid. Symbol '&' not followed by single symbol.")
+		}
+		ValPop(f.Formals, 0)
+		sym := ValPop(f.Formals, 0)
+		val := NewValQexpr()
+		f.Env.Put(sym, val)
+	}
+	if f.Formals.Count() == 0 {
+		f.Env.par = e
+		return BuiltinEval(f.Env, ValAdd(NewValSexpr(), ValCopy(f.Body)))
+	} else {
+		return ValCopy(f)
+	}
 }
 
 func ValEval(e *Env, v *Val) *Val {
@@ -426,7 +547,7 @@ func ValEvalSexpr(e *Env, v *Val) *Val {
 	}
 
 	if v.Count() == 1 {
-		return ValTake(v, 0)
+		return ValEval(e, ValTake(v, 0))
 	}
 
 	/* Ensure first element is a function after evaluation */
@@ -435,7 +556,7 @@ func ValEvalSexpr(e *Env, v *Val) *Val {
 		err := NewValErr("S-Expression starts with incorrect type. Got %s, Expected %s.", TypeName(f.Type), TypeName(ValFun))
 		return err
 	}
-	return f.Builtin(e, v)
+	return ValCall(e, f, v)
 }
 
 func ValReadNum(t *NumberContext) *Val {

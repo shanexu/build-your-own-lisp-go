@@ -1,7 +1,7 @@
 grammar Lispy;
 
 NUMBER : '-'? [0-9]+;
-SYMBOL : [a-zA-Z0-9_+\-*/=<>!&]+;
+SYMBOL : [a-zA-Z0-9_+\\\-*/=<>!&]+;
 WS     : [ \t\n\r]+ -> skip;
 
 number : NUMBER;
