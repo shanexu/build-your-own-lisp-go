@@ -256,7 +256,9 @@ func BuiltinHead(e *Env, a *Val) *Val {
 		return err
 	}
 	v := ValTake(a, 0)
-	v.Cell = v.Cell[1:]
+	for v.Count() > 1 {
+		ValPop(v, 1)
+	}
 	return v
 }
 
