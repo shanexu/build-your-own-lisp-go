@@ -13,6 +13,12 @@ type LispyListener interface {
 	// EnterSymbol is called when entering the symbol production.
 	EnterSymbol(c *SymbolContext)
 
+	// EnterString is called when entering the string production.
+	EnterString(c *StringContext)
+
+	// EnterComment is called when entering the comment production.
+	EnterComment(c *CommentContext)
+
 	// EnterSexpr is called when entering the sexpr production.
 	EnterSexpr(c *SexprContext)
 
@@ -30,6 +36,12 @@ type LispyListener interface {
 
 	// ExitSymbol is called when exiting the symbol production.
 	ExitSymbol(c *SymbolContext)
+
+	// ExitString is called when exiting the string production.
+	ExitString(c *StringContext)
+
+	// ExitComment is called when exiting the comment production.
+	ExitComment(c *CommentContext)
 
 	// ExitSexpr is called when exiting the sexpr production.
 	ExitSexpr(c *SexprContext)

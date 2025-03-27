@@ -12,7 +12,7 @@ import (
 )
 
 func main() {
-	fmt.Println("Lispy Version 0.0.0.0.9")
+	fmt.Println("Lispy Version 0.0.0.1.0")
 	fmt.Printf("Press Ctrl+c to Exit\n\n")
 
 	rl, err := readline.NewEx(&readline.Config{

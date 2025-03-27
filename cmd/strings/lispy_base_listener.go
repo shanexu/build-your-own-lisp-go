@@ -32,6 +32,18 @@ func (s *BaseLispyListener) EnterSymbol(ctx *SymbolContext) {}
 // ExitSymbol is called when production symbol is exited.
 func (s *BaseLispyListener) ExitSymbol(ctx *SymbolContext) {}
 
+// EnterString is called when production string is entered.
+func (s *BaseLispyListener) EnterString(ctx *StringContext) {}
+
+// ExitString is called when production string is exited.
+func (s *BaseLispyListener) ExitString(ctx *StringContext) {}
+
+// EnterComment is called when production comment is entered.
+func (s *BaseLispyListener) EnterComment(ctx *CommentContext) {}
+
+// ExitComment is called when production comment is exited.
+func (s *BaseLispyListener) ExitComment(ctx *CommentContext) {}
+
 // EnterSexpr is called when production sexpr is entered.
 func (s *BaseLispyListener) EnterSexpr(ctx *SexprContext) {}
 
